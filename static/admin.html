@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SupplySense AI — Admin</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+        .logo { width: 36px; height: 36px; background: #16a34a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #fff; }
+        h1 { font-size: 24px; }
+        .subtitle { color: #64748b; margin-bottom: 24px; }
+        .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+        .card h2 { font-size: 16px; margin-bottom: 12px; }
+        .status { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+        .status-on { background: #16a34a20; color: #16a34a; }
+        .status-off { background: #dc262620; color: #dc2626; }
+        .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-right: 8px; margin-bottom: 8px; }
+        .btn-start { background: #16a34a; color: #fff; }
+        .btn-stop { background: #dc2626; color: #fff; }
+        .btn-reset { background: #ea580c; color: #fff; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #334155; }
+        .stat:last-child { border-bottom: none; }
+        .stat-label { color: #94a3b8; }
+        .stat-value { font-weight: 600; }
+        .logout { color: #64748b; font-size: 13px; margin-top: 16px; }
+        .logout a { color: #ef4444; text-decoration: none; }
+        .logout a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">SS</div>
+            <h1>SupplySense AI</h1>
+        </div>
+        <p class="subtitle">Admin Control Panel</p>
+
+        <div class="card">
+            <h2>Engine Status</h2>
+            <p>Status: <span id="status" class="status status-on">Checking...</span></p>
+            <div style="margin-top: 12px;">
+                <button class="btn btn-start" onclick="startEngine()">▶ Start</button>
+                <button class="btn btn-stop" onclick="stopEngine()">⏹ Stop</button>
+                <button class="btn btn-reset" onclick="resetUsage()">🔄 Reset Stats</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Usage</h2>
+            <div class="stat"><span class="stat-label">Total Requests</span><span class="stat-value" id="totalRequests">0</span></div>
+            <div class="stat"><span class="stat-label">Total Tokens</span><span class="stat-value" id="totalTokens">0</span></div>
+            <div id="endpointStats"></div>
+        </div>
+
+        <p class="logout"><a href="#" onclick="logout()">Logout</a></p>
+    </div>
+
+    <script>
+        // Get password from localStorage or URL
+        function getPassword() {
+            const stored = localStorage.getItem('ss_admin_pass');
+            if (stored) return stored;
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlPass = urlParams.get('password');
+            if (urlPass) {
+                localStorage.setItem('ss_admin_pass', urlPass);
+                // Clean URL
+                window.history.replaceState({}, document.title, '/admin');
+                return urlPass;
+            }
+            return '';
+        }
+
+        // Save password on first load
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlPass = urlParams.get('password');
+        if (urlPass) {
+            localStorage.setItem('ss_admin_pass', urlPass);
+            window.history.replaceState({}, document.title, '/admin');
+        }
+
+        async function call(endpoint, method = 'GET') {
+            const pw = getPassword();
+            if (!pw) {
+                window.location.href = '/admin';
+                return;
+            }
+            const res = await fetch(`/api${endpoint}${endpoint.includes('?') ? '&' : '?'}password=${pw}`, { method });
+            if (res.status === 401) {
+                localStorage.removeItem('ss_admin_pass');
+                window.location.href = '/admin';
+                return;
+            }
+            return res.json();
+        }
+
+        async function loadStats() {
+            const data = await call('/admin/usage');
+            if (!data) return;
+            document.getElementById('status').textContent = data.engine_running ? 'Running' : 'Stopped';
+            document.getElementById('status').className = `status ${data.engine_running ? 'status-on' : 'status-off'}`;
+            document.getElementById('totalRequests').textContent = data.usage.requests;
+            document.getElementById('totalTokens').textContent = data.usage.tokens;
+            
+            let html = '';
+            for (const [ep, count] of Object.entries(data.usage.endpoints)) {
+                html += `<div class="stat"><span class="stat-label">/${ep}</span><span class="stat-value">${count}</span></div>`;
+            }
+            document.getElementById('endpointStats').innerHTML = html || '<div class="stat"><span class="stat-label">No requests yet</span></div>';
+        }
+
+        async function startEngine() { await call('/admin/start', 'POST'); loadStats(); }
+        async function stopEngine() { await call('/admin/stop', 'POST'); loadStats(); }
+        async function resetUsage() { await call('/admin/reset', 'POST'); loadStats(); }
+
+        function logout() {
+            localStorage.removeItem('ss_admin_pass');
+            window.location.href = '/admin';
+        }
+
+       
+        if (!getPassword()) {
+            window.location.href = '/admin';
+        }
+
+        loadStats();
+        setInterval(loadStats, 10000);
+    </script>
+</body>
+</html>
