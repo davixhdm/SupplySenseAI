@@ -23,10 +23,24 @@
         .btn-stop { background: #dc2626; color: #fff; }
         .btn-reset { background: #ea580c; color: #fff; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #334155; }
-        .stat:last-child { border-bottom: none; }
-        .stat-label { color: #94a3b8; }
-        .stat-value { font-weight: 600; }
+        .stat-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #1e293b; }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: #94a3b8; font-size: 13px; }
+        .stat-value { font-weight: 600; font-size: 14px; }
+        .bar-wrap { margin-top: 6px; margin-bottom: 2px; }
+        .bar { height: 8px; border-radius: 4px; background: #0f172a; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+        .bar-fill-green { background: #16a34a; }
+        .bar-fill-yellow { background: #eab308; }
+        .bar-fill-red { background: #ef4444; }
+        .bar-fill-blue { background: #3b82f6; }
+        .usage-info { display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-top: 2px; }
+        .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+        .total-card { background: #0f172a; border-radius: 8px; padding: 14px; text-align: center; }
+        .total-card .num { font-size: 28px; font-weight: 700; }
+        .total-card .label { font-size: 11px; color: #64748b; margin-top: 4px; }
+        .key-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+        .key-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
         .logout { color: #64748b; font-size: 13px; margin-top: 16px; }
         .logout a { color: #ef4444; text-decoration: none; }
         .logout a:hover { text-decoration: underline; }
@@ -46,87 +60,114 @@
             <div style="margin-top: 12px;">
                 <button class="btn btn-start" onclick="startEngine()">▶ Start</button>
                 <button class="btn btn-stop" onclick="stopEngine()">⏹ Stop</button>
-                <button class="btn btn-reset" onclick="resetUsage()">🔄 Reset Stats</button>
+                <button class="btn btn-reset" onclick="resetUsage()">🔄 Reset</button>
             </div>
         </div>
 
         <div class="card">
             <h2>Usage</h2>
-            <div class="stat"><span class="stat-label">Total Requests</span><span class="stat-value" id="totalRequests">0</span></div>
-            <div class="stat"><span class="stat-label">Total Tokens</span><span class="stat-value" id="totalTokens">0</span></div>
-            <div id="endpointStats"></div>
+            <div class="totals">
+                <div class="total-card">
+                    <div class="num" id="totalRequests" style="color: #3b82f6;">0</div>
+                    <div class="label">Total Requests</div>
+                </div>
+                <div class="total-card">
+                    <div class="num" id="totalTokens" style="color: #16a34a;">0</div>
+                    <div class="label">Total Tokens</div>
+                </div>
+            </div>
+            <div id="endpointBars" style="margin-top: 16px;"></div>
+        </div>
+
+        <div class="card">
+            <h2>API Keys</h2>
+            <div class="key-row">
+                <div class="key-dot" style="background: #3b82f6;"></div>
+                <span class="stat-label">AI_ENGINE_API_KEY configured</span>
+            </div>
+            <div class="key-row">
+                <div class="key-dot" style="background: #16a34a;"></div>
+                <span class="stat-label">Groq API Key configured</span>
+            </div>
         </div>
 
         <p class="logout"><a href="#" onclick="logout()">Logout</a></p>
     </div>
 
     <script>
-        // Get password from localStorage or URL
         function getPassword() {
             const stored = localStorage.getItem('ss_admin_pass');
             if (stored) return stored;
             const urlParams = new URLSearchParams(window.location.search);
             const urlPass = urlParams.get('password');
-            if (urlPass) {
-                localStorage.setItem('ss_admin_pass', urlPass);
-                // Clean URL
-                window.history.replaceState({}, document.title, '/admin');
-                return urlPass;
-            }
+            if (urlPass) { localStorage.setItem('ss_admin_pass', urlPass); window.history.replaceState({}, document.title, '/admin'); return urlPass; }
             return '';
         }
 
-        // Save password on first load
         const urlParams = new URLSearchParams(window.location.search);
-        const urlPass = urlParams.get('password');
-        if (urlPass) {
-            localStorage.setItem('ss_admin_pass', urlPass);
-            window.history.replaceState({}, document.title, '/admin');
-        }
+        if (urlParams.get('password')) { localStorage.setItem('ss_admin_pass', urlParams.get('password')); window.history.replaceState({}, document.title, '/admin'); }
 
         async function call(endpoint, method = 'GET') {
             const pw = getPassword();
-            if (!pw) {
-                window.location.href = '/admin';
-                return;
-            }
+            if (!pw) { window.location.href = '/admin'; return; }
             const res = await fetch(`/api${endpoint}${endpoint.includes('?') ? '&' : '?'}password=${pw}`, { method });
-            if (res.status === 401) {
-                localStorage.removeItem('ss_admin_pass');
-                window.location.href = '/admin';
-                return;
-            }
+            if (res.status === 401) { localStorage.removeItem('ss_admin_pass'); window.location.href = '/admin'; return; }
             return res.json();
+        }
+
+        function getBarColor(percent) {
+            if (percent > 80) return 'bar-fill-red';
+            if (percent > 50) return 'bar-fill-yellow';
+            return 'bar-fill-green';
         }
 
         async function loadStats() {
             const data = await call('/admin/usage');
             if (!data) return;
+            
             document.getElementById('status').textContent = data.engine_running ? 'Running' : 'Stopped';
             document.getElementById('status').className = `status ${data.engine_running ? 'status-on' : 'status-off'}`;
             document.getElementById('totalRequests').textContent = data.usage.requests;
             document.getElementById('totalTokens').textContent = data.usage.tokens;
+
+            const endpoints = data.usage.endpoints;
+            const maxCount = Math.max(...Object.values(endpoints), 1);
             
             let html = '';
-            for (const [ep, count] of Object.entries(data.usage.endpoints)) {
-                html += `<div class="stat"><span class="stat-label">/${ep}</span><span class="stat-value">${count}</span></div>`;
+            for (const [ep, count] of Object.entries(endpoints)) {
+                const percent = Math.round((count / maxCount) * 100);
+                html += `
+                <div class="stat-row">
+                    <div style="flex: 1;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span class="stat-label">/${ep}</span>
+                            <span class="stat-value">${count}</span>
+                        </div>
+                        <div class="bar-wrap">
+                            <div class="bar"><div class="bar-fill ${getBarColor(percent)}" style="width: ${percent}%"></div></div>
+                        </div>
+                        <div class="usage-info">
+                            <span>${percent}% of peak</span>
+                            <span>${count} requests</span>
+                        </div>
+                    </div>
+                </div>`;
             }
-            document.getElementById('endpointStats').innerHTML = html || '<div class="stat"><span class="stat-label">No requests yet</span></div>';
+            
+            if (!html) {
+                html = '<div class="stat-row"><span class="stat-label" style="text-align:center;width:100%">No requests yet</span></div>';
+            }
+            
+            document.getElementById('endpointBars').innerHTML = html;
         }
 
         async function startEngine() { await call('/admin/start', 'POST'); loadStats(); }
         async function stopEngine() { await call('/admin/stop', 'POST'); loadStats(); }
         async function resetUsage() { await call('/admin/reset', 'POST'); loadStats(); }
 
-        function logout() {
-            localStorage.removeItem('ss_admin_pass');
-            window.location.href = '/admin';
-        }
+        function logout() { localStorage.removeItem('ss_admin_pass'); window.location.href = '/admin'; }
 
-       
-        if (!getPassword()) {
-            window.location.href = '/admin';
-        }
+        if (!getPassword()) { window.location.href = '/admin'; }
 
         loadStats();
         setInterval(loadStats, 10000);
