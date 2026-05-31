@@ -1,5 +1,6 @@
 import sys
 import os
+import asyncio as _asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +14,6 @@ logger.add(sys.stdout, level=settings.LOG_LEVEL)
 
 os.makedirs("static", exist_ok=True)
 
-# Valid admin passwords
 VALID_PASSWORDS = [settings.ADMIN_PASSWORD, settings.ADMIN_PASSWORD2]
 
 @asynccontextmanager
@@ -27,6 +27,16 @@ async def lifespan(app: FastAPI):
         logger.info("Groq: CONFIGURED")
     else:
         logger.warning("Groq: MISSING — AI disabled")
+
+    # Keep-alive for Render free tier
+    if settings.ENVIRONMENT == "production":
+        try:
+            from services.keep_alive import keep_alive as _keep_alive_loop
+            _asyncio.create_task(_keep_alive_loop())
+            logger.info("Keep-alive: ENABLED (self-ping every 9 minutes)")
+        except Exception as e:
+            logger.warning(f"Keep-alive: FAILED — {e}")
+
     yield
     logger.info(f"{settings.APP_NAME} shut down")
 
@@ -44,7 +54,6 @@ async def global_handler(request: Request, exc: Exception):
     logger.error(f"Error: {exc}")
     return JSONResponse(status_code=500, content={"status": "error", "error": str(exc) if settings.DEBUG else "Internal error"})
 
-# Favicon
 @app.get("/favicon.ico")
 async def favicon():
     if os.path.exists("static/favicon.svg"):
@@ -57,11 +66,9 @@ async def favicon_svg():
         return FileResponse("static/favicon.svg", media_type="image/svg+xml")
     raise HTTPException(404)
 
-# Routes
 from routes.supplysense import router
 app.include_router(router, prefix="/api")
 
-# Admin panel
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(password: str = Query(None)):
     if password not in VALID_PASSWORDS:
